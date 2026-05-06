@@ -1,0 +1,10 @@
+vid.webm
+vault.enc
+liboqs-python/
+__pycache__/
+cdn_storage/
+
+.env/
+*.pdf
+
+.DS_Store

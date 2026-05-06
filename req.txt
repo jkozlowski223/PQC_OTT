@@ -1,0 +1,5 @@
+fastapi
+uvicorn
+cryptography
+liboqs-python
+ffmpeg-python
