@@ -5,26 +5,21 @@ from typing import Dict
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 class StreamingSession:
-    """Sesja transmisji dla jednego użytkownika"""
-    
     def __init__(self, user_id: str, is_authorized: bool = False):
         self.user_id = user_id
         self.session_id = str(uuid.uuid4())
         self.is_authorized = is_authorized
         self.created_at = datetime.now()
-        self.aes_keys = {} # Przechowuje zrotowane klucze (interwał: klucz)
+        self.aes_keys = {}
         self.segments_downloaded = []
         
     def set_aes_keys(self, keys_map: dict):
-        """Przydziel zestaw rotacyjnych kluczy AES dla autoryzowanego użytkownika"""
         if self.is_authorized:
             self.aes_keys = keys_map
             return True
         return False
 
 class StreamingService:
-    """Serwis zarządzający sesjami transmisji dla użytkowników"""
-    
     def __init__(self, kms_server, video_processor):
         self.kms = kms_server
         self.video_proc = video_processor
@@ -71,7 +66,6 @@ class StreamingService:
             return None, {"error": f"Błąd wczytywania segmentu: {e}"}
         
         if session.is_authorized:
-            # Mechanizm ustalania klucza zrotowanego do aktualnego segmentu
             current_interval = (segment_id // interval) * interval
             aes_key = session.aes_keys.get(current_interval)
             

@@ -1,16 +1,10 @@
-"""
-PQC OTT System - Rotacja kluczy, Panel logowania, Transmisja wideo
-Admin: autoryzowany - otrzymuje klucz AES, widzi wideo i watermark.
-Guest: nieautoryzowany - brak klucza, blokada wideo.
-"""
 import os
 import json
 import base64
 import hashlib
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
-import oqs
 import uvicorn
 
 from kms_pqc import KMSServer
@@ -23,17 +17,11 @@ kms = KMSServer()
 video_proc = VideoProcessor("vid.webm", "cdn_storage")
 streaming_service = StreamingService(kms, video_proc)
 
-ROTATION_INTERVAL = 10 # Rotacja klucza wideo co 10 segmentów
-
-class KeyRequest(BaseModel):
-    token: str
-    client_kem_public_key_b64: str
+ROTATION_INTERVAL = 10
 
 class LoginRequest(BaseModel):
     username: str
     password: str
-
-# ==================== STARTUP ====================
 
 @app.on_event("startup")
 async def startup_event():
@@ -55,14 +43,12 @@ async def startup_event():
         num_segments = len(segment_files)
         print(f"[Startup] 🔐 Encrypting {num_segments} segments with AES-256 Key Rotation (every {ROTATION_INTERVAL} segs)...")
         
-        # Generowanie wielu rotacyjnych kluczy
         keys_map = {}
         for i in range(0, max(1, num_segments + ROTATION_INTERVAL), ROTATION_INTERVAL):
             keys_map[i] = os.urandom(32)
             
         video_proc.encrypt_segments(keys_map, interval=ROTATION_INTERVAL)
         
-        # Zapisz mapę kluczy dla ciągłości sesji
         serializable_map = {str(k): base64.b64encode(v).decode() for k, v in keys_map.items()}
         with open(os.path.join(cdn_path, ".content_keys.json"), 'w') as f:
             json.dump(serializable_map, f)
@@ -89,8 +75,6 @@ async def startup_event():
     print("🌐 Access at: http://localhost:8000/")
     print("="*70 + "\n")
 
-
-# ==================== DASHBOARD & AUTH ====================
 
 @app.get("/", response_class=HTMLResponse)
 def dashboard():
@@ -180,8 +164,6 @@ def get_watermark(session_id: str):
         "watermark_token": watermark_hash,
         "aes_preview": first_key.hex()[:16] + "..." 
     }
-
-# ==================== STREAMING ENDPOINTS ====================
 
 @app.get("/streaming/session-info")
 def get_session_info(session_id: str):

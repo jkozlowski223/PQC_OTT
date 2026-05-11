@@ -25,39 +25,36 @@ class VideoProcessor:
         ]
         
         try:
-            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
             print("[VideoProcessor] Cięcie zakończone sukcesem.")
         except subprocess.CalledProcessError as e:
             print(f"[VideoProcessor] Błąd FFmpeg podczas cięcia wideo: {e}")
+            if e.stderr:
+                print(f"[VideoProcessor] FFmpeg stderr: {e.stderr.strip()}")
 
     def encrypt_segments(self, keys_map: dict, interval: int = 10):
-        """Szyfruje segmenty, wykorzystując rotację kluczy (zmiana klucza co 'interval' segmentów)"""
         print(f"[VideoProcessor] Szyfrowanie segmentów wideo. Rotacja AES-256 co {interval} segmentów...")
         
         for filename in sorted(os.listdir(self.output_dir)):
-            if filename.endswith(".ts"):
-                filepath = os.path.join(self.output_dir, filename)
-                
-                # Wyciągnięcie ID segmentu z nazwy (np. segment_015.ts -> 15)
-                seg_idx = int(filename.split('_')[1].split('.')[0])
-                
-                # Obliczenie do którego przedziału rotacyjnego należy segment (np. 15 -> przedział 10)
-                current_interval = (seg_idx // interval) * interval
-                
-                # Pobranie odpowiedniego klucza dla wyliczonego przedziału
-                aes_key = keys_map.get(current_interval)
-                if not aes_key:
-                    aes_key = keys_map[0] # Fallback
-                
-                with open(filepath, 'rb') as f:
-                    data = f.read()
+            if not filename.endswith(".ts"):
+                continue
 
-                iv = os.urandom(16) 
-                cipher = Cipher(algorithms.AES(aes_key), modes.CTR(iv))
-                encryptor = cipher.encryptor()
-                encrypted_data = encryptor.update(data) + encryptor.finalize()
+            filepath = os.path.join(self.output_dir, filename)
+            seg_idx = int(filename.split("_")[1].split(".")[0])
+            current_interval = (seg_idx // interval) * interval
+            aes_key = keys_map.get(current_interval)
+            if not aes_key:
+                aes_key = keys_map[0]
 
-                with open(filepath, 'wb') as f:
-                    f.write(iv + encrypted_data)
+            with open(filepath, "rb") as f:
+                data = f.read()
+
+            iv = os.urandom(16)
+            cipher = Cipher(algorithms.AES(aes_key), modes.CTR(iv))
+            encryptor = cipher.encryptor()
+            encrypted_data = encryptor.update(data) + encryptor.finalize()
+
+            with open(filepath, "wb") as f:
+                f.write(iv + encrypted_data)
                     
         print("[VideoProcessor] Szyfrowanie zakończone.")
