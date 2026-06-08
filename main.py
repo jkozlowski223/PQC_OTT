@@ -204,6 +204,34 @@ def get_video_stream(session_id: str):
         headers={"Content-Disposition": "inline; filename=video.ts"}
     )
 
+@app.get("/streaming/video/stream-encrypted")
+def get_encrypted_video_stream(session_id: str):
+    """Zwraca strumień WSZYSTKICH zaszyfrowanych segmentów dla przeglądu"""
+    if session_id not in streaming_service.sessions:
+        raise HTTPException(status_code=404, detail="Sesja nie znaleziona")
+
+    segment_ids = streaming_service.get_available_segments()
+    if not segment_ids:
+        raise HTTPException(status_code=404, detail="Brak segmentów")
+
+    print(f"[Encrypted Stream] Pobieranie {len(segment_ids)} ALL encrypted segmentow")
+
+    def stream_generator():
+        for sid in segment_ids:
+            segment_file = os.path.join("cdn_storage", f"segment_{sid:03d}.ts")
+            try:
+                with open(segment_file, 'rb') as f:
+                    data = f.read()
+                    yield data
+            except Exception as e:
+                print(f"[Encrypted Stream] Blad: {e}")
+
+    return StreamingResponse(
+        stream_generator(),
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": "attachment; filename=encrypted_all.bin"}
+    )
+
 @app.get("/streaming/video", response_class=HTMLResponse)
 def stream_video_page():
     html = """
@@ -304,7 +332,59 @@ def stream_video_page():
                 const statusText = document.getElementById('statusText');
                 
                 if (!isAuthorized) {
-                    videoSection.innerHTML = `<div class="access-denied-message"><h2>🚫 Strumień Zaszyfrowany</h2><p>Brak klucza AES. Twoje konto <b>nie posiada uprawnień</b>.</p></div>`;
+                    playBtn.disabled = true;
+                    playBtn.style.display = 'none';
+                    statusText.textContent = 'Pobieranie zaszyfrowanych segmentow...';
+                    
+                    videoSection.innerHTML = `<div class="video-container" style="position:relative;">
+                        <canvas id="noiseCanvas" width="640" height="360" style="width:100%; background:#000; display:block;"></canvas>
+                        <div id="wmOverlay" class="watermark-overlay">ENCRYPTED</div>
+                    </div>`;
+
+                    try {
+                        console.log('Guest: Pobieranie encrypted segments...');
+                        statusText.textContent = 'Pobieranie encrypted segmentow...';
+                        
+                        const canvas = document.getElementById('noiseCanvas');
+                        const ctx = canvas.getContext('2d');
+                        let byteOffset = 0;
+                        
+                        const videoUrl = `/streaming/video/stream-encrypted?session_id=${sessionId}`;
+                        const response = await fetch(videoUrl);
+                        if (!response.ok) { statusText.textContent = 'Blad: ' + response.status; return; }
+                        
+                        const reader = response.body.getReader();
+                        let chunkCount = 0;
+                        
+                        while (true) {
+                            const {done, value} = await reader.read();
+                            if (done) break;
+                            
+                            chunkCount++;
+                            
+                            // Rysuj bieżący segment na canvasie bez agregacji
+                            const imageData = ctx.createImageData(canvas.width, canvas.height);
+                            const pixelData = imageData.data;
+                            
+                            for (let i = 0; i < pixelData.length; i += 4) {
+                                const byteIndex = (i / 4) % value.length;
+                                const byte = value[byteIndex];
+                                pixelData[i] = byte;
+                                pixelData[i + 1] = byte;
+                                pixelData[i + 2] = byte;
+                                pixelData[i + 3] = 255;
+                            }
+                            ctx.putImageData(imageData, 0, 0);
+                            
+                            statusText.textContent = `Segment ${chunkCount}: ${(value.length/1024).toFixed(0)} KB`;
+                        }
+                        
+                        console.log('Skonczone: ', chunkCount, 'segments');
+                        statusText.textContent = `GOTOWE! Pobrano ${chunkCount} segmentow`;
+                    } catch (err) { 
+                        console.error('Guest error:', err);
+                        statusText.textContent = 'Blad: ' + err.message; 
+                    }
                     return;
                 }
 
@@ -341,10 +421,6 @@ def stream_video_page():
             window.onload = () => {
                 if (!sessionId) { window.location.href = '/'; return; }
                 loadSessionInfo();
-                if (!isAuthorized) {
-                    document.getElementById('videoSection').innerHTML = `<div class="access-denied-message"><h2>🚫 Strumień Zaszyfrowany</h2><p>Brak kluczy AES. Twoje konto <b>nie posiada uprawnień</b>.</p></div>`;
-                    document.getElementById('playBtn').disabled = true;
-                }
             };
         </script>
     </body>

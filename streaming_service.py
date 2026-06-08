@@ -97,6 +97,25 @@ class StreamingService:
                 "message": "Nie jesteś autoryzowanym użytkownikiem"
             }
     
+    def get_encrypted_segment_chunked(self, session_id: str, segment_id: int, chunk_size: int = 8192):
+        """Generator zwracający zaszyfrowany segment w chunks dla przeglądu szumu szyfrowania"""
+        if session_id not in self.sessions:
+            return
+        
+        segment_file = os.path.join("cdn_storage", f"segment_{segment_id:03d}.ts")
+        if not os.path.exists(segment_file):
+            return
+        
+        try:
+            with open(segment_file, 'rb') as f:
+                while True:
+                    chunk = f.read(chunk_size)
+                    if not chunk:
+                        break
+                    yield chunk
+        except Exception as e:
+            print(f"[StreamingService] ❌ Błąd czytania zaszyfrowanego segmentu {segment_id}: {e}")
+    
     def get_available_segments(self) -> list:
         segment_files = [
             f for f in os.listdir("cdn_storage") 
