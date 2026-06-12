@@ -29,8 +29,8 @@ class PQCReadyVault:
                     encrypted = f.read()
                     if encrypted:
                         vault_content = json.loads(self._decrypt_data(encrypted).decode())
-            except Exception as e:
-                print(f"[Vault] Warning: Could not read vault ({e}), starting fresh")
+            except (IOError, OSError, json.JSONDecodeError, UnicodeDecodeError) as e:
+                print(f"[Vault] Ostrzeżenie: Nie można odczytać magazynu ({e}), uruchamianie od nowa")
                 vault_content = {}
         
         vault_content[key_id] = base64.b64encode(key_data).decode()
@@ -68,7 +68,7 @@ class KMSServer:
             
             with oqs.Signature(self.sig_alg) as verifier:
                 return verifier.verify(message, signature, self.sig_public_key)
-        except Exception:
+        except (ValueError, KeyError, UnicodeDecodeError, json.JSONDecodeError, Exception):
             return False
 
     def encapsulate_aes_key(self, client_kem_public_key: bytes):

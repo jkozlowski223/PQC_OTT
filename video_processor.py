@@ -9,7 +9,7 @@ class VideoProcessor:
         os.makedirs(self.output_dir, exist_ok=True)
 
     def segment_video(self):
-        print("[VideoProcessor] Transkodowanie i cięcie wideo na równe segmenty...")
+        print("[VideoProcessor] Transkodowanie i cięcie wideo na równe segmenty")
         segment_pattern = os.path.join(self.output_dir, "segment_%03d.ts")
         m3u8_file = os.path.join(self.output_dir, "playlist.m3u8")
         
@@ -26,25 +26,25 @@ class VideoProcessor:
         
         try:
             subprocess.run(cmd, check=True, capture_output=True, text=True)
-            print("[VideoProcessor] Cięcie zakończone sukcesem.")
+            print("[VideoProcessor] Cięcie zakończone sukcesem")
         except subprocess.CalledProcessError as e:
             print(f"[VideoProcessor] Błąd FFmpeg podczas cięcia wideo: {e}")
             if e.stderr:
                 print(f"[VideoProcessor] FFmpeg stderr: {e.stderr.strip()}")
 
     def encrypt_segments(self, keys_map: dict, interval: int = 10):
-        print(f"[VideoProcessor] Szyfrowanie segmentów wideo. Rotacja AES-256 co {interval} segmentów...")
+        print(f"[VideoProcessor] Szyfrowanie segmentów wideo. Rotacja AES-256 co {interval} segmentów")
         
-        for filename in sorted(os.listdir(self.output_dir)):
-            if not filename.endswith(".ts"):
-                continue
+        segment_files = sorted([
+            f for f in os.listdir(self.output_dir)
+            if f.endswith(".ts")
+        ])
 
+        for filename in segment_files:
             filepath = os.path.join(self.output_dir, filename)
             seg_idx = int(filename.split("_")[1].split(".")[0])
             current_interval = (seg_idx // interval) * interval
-            aes_key = keys_map.get(current_interval)
-            if not aes_key:
-                aes_key = keys_map[0]
+            aes_key = keys_map.get(current_interval, keys_map.get(0))
 
             with open(filepath, "rb") as f:
                 data = f.read()
@@ -57,4 +57,4 @@ class VideoProcessor:
             with open(filepath, "wb") as f:
                 f.write(iv + encrypted_data)
                     
-        print("[VideoProcessor] Szyfrowanie zakończone.")
+        print("[VideoProcessor] Szyfrowanie zakończone")

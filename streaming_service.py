@@ -36,11 +36,11 @@ class StreamingService:
         if is_authorized:
             if self._content_aes_keys is not None:
                 session.set_aes_keys(self._content_aes_keys)
-                print(f"[StreamingService] ✅ Sesja autoryzowana (Klucze przypisane): {session.session_id}")
+                print(f"[StreamingService] Sesja autoryzowana (Klucze przypisane): {session.session_id}")
             else:
-                print(f"[StreamingService] ❌ Brak kluczy AES - startup nie ustawił rotacji!")
+                print(f"[StreamingService] Brak kluczy AES - startup nie ustawił rotacji!")
         else:
-            print(f"[StreamingService] ⚠️ Sesja nieautoryzowana: {session.session_id}")
+            print(f"[StreamingService] Sesja nieautoryzowana: {session.session_id}")
         
         return {
             "status": "success",
@@ -62,7 +62,7 @@ class StreamingService:
         try:
             with open(segment_file, 'rb') as f:
                 segment_data = f.read()
-        except Exception as e:
+        except (IOError, OSError) as e:
             return None, {"error": f"Błąd wczytywania segmentu: {e}"}
         
         if session.is_authorized:
@@ -87,7 +87,7 @@ class StreamingService:
                     "authorized": True,
                     "size": len(decrypted)
                 }
-            except Exception as e:
+            except (ValueError, Exception) as e:
                 return None, {"error": f"Dekrypcja nie udała się: {e}"}
         else:
             return None, {
@@ -113,16 +113,19 @@ class StreamingService:
                     if not chunk:
                         break
                     yield chunk
-        except Exception as e:
-            print(f"[StreamingService] ❌ Błąd czytania zaszyfrowanego segmentu {segment_id}: {e}")
+        except (IOError, OSError) as e:
+            print(f"[StreamingService] Błąd czytania zaszyfrowanego segmentu {segment_id}: {e}")
     
     def get_available_segments(self) -> list:
-        segment_files = [
-            f for f in os.listdir("cdn_storage") 
-            if f.startswith("segment_") and f.endswith(".ts")
-        ]
-        segment_ids = sorted([int(f.split("_")[1].split(".")[0]) for f in segment_files])
-        return segment_ids
+        try:
+            segment_ids = sorted([
+                int(f.split("_")[1].split(".")[0]) 
+                for f in os.listdir("cdn_storage") 
+                if f.startswith("segment_") and f.endswith(".ts")
+            ])
+            return segment_ids
+        except (OSError, ValueError, IndexError):
+            return []
     
     def get_session_info(self, session_id: str) -> dict:
         if session_id not in self.sessions:
@@ -134,5 +137,5 @@ class StreamingService:
             "is_authorized": session.is_authorized,
             "created_at": session.created_at.isoformat(),
             "segments_downloaded": len(session.segments_downloaded),
-            "access_status": "✅ AUTORYZOWANY" if session.is_authorized else "❌ BRAK DOSTĘPU"
+            "access_status": "AUTORYZOWANY" if session.is_authorized else "BRAK DOSTĘPU"
         }

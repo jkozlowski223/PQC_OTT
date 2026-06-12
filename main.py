@@ -26,22 +26,22 @@ class LoginRequest(BaseModel):
 @app.on_event("startup")
 async def startup_event():
     print("\n" + "="*70)
-    print("🚀 PQC OTT System Starting...")
+    print("System PQC OTT się uruchamia...")
     print("="*70)
     
     cdn_path = "cdn_storage"
     if not os.path.exists(cdn_path):
         os.makedirs(cdn_path)
     
-    segment_files = [f for f in os.listdir(cdn_path) if f.startswith("segment_") and f.endswith(".ts")]
+    segment_files = sorted([f for f in os.listdir(cdn_path) if f.startswith("segment_") and f.endswith(".ts")])
     
     if not segment_files:
-        print("[Startup] 📹 Segmenting video...")
+        print("[Startup] Segmentacja wideo...")
         video_proc.segment_video()
         segment_files = [f for f in os.listdir(cdn_path) if f.startswith("segment_") and f.endswith(".ts")]
         
         num_segments = len(segment_files)
-        print(f"[Startup] 🔐 Encrypting {num_segments} segments with AES-256 Key Rotation (every {ROTATION_INTERVAL} segs)...")
+        print(f"[Startup] Szyfrowanie {num_segments} segmentów z rotacją klucza AES-256 (co {ROTATION_INTERVAL} segmentów)...")
         
         keys_map = {}
         for i in range(0, max(1, num_segments + ROTATION_INTERVAL), ROTATION_INTERVAL):
@@ -50,29 +50,30 @@ async def startup_event():
         video_proc.encrypt_segments(keys_map, interval=ROTATION_INTERVAL)
         
         serializable_map = {str(k): base64.b64encode(v).decode() for k, v in keys_map.items()}
-        with open(os.path.join(cdn_path, ".content_keys.json"), 'w') as f:
+        keys_file_path = os.path.join(cdn_path, ".content_keys.json")
+        with open(keys_file_path, 'w') as f:
             json.dump(serializable_map, f)
             
         streaming_service.set_content_keys(keys_map)
-        print("[Startup] ✅ Video processing complete")
+        print("[Startup] Przetwarzanie wideo ukończone")
     else:
-        print(f"[Startup] ✅ Found {len(segment_files)} segments already available")
-        keys_file = os.path.join(cdn_path, ".content_keys.json")
-        if os.path.exists(keys_file):
+        print(f"[Startup] Znaleziono {len(segment_files)} segmentów")
+        keys_file_path = os.path.join(cdn_path, ".content_keys.json")
+        if os.path.exists(keys_file_path):
             try:
-                with open(keys_file, 'r') as f:
+                with open(keys_file_path, 'r') as f:
                     sm = json.load(f)
                     keys_map = {int(k): base64.b64decode(v) for k, v in sm.items()}
                 streaming_service.set_content_keys(keys_map)
-                print("[Startup] 🔑 Loaded existing AES rotating keys")
-            except Exception as e:
-                print(f"[Startup] ⚠️ Error loading keys: {e}")
+                print("[Startup] Załadowano istniejące klucze rotacyjne AES")
+            except (IOError, OSError, ValueError, KeyError) as e:
+                print(f"[Startup] Błąd wczytywania kluczy: {e}")
         else:
-            print("[Startup] ⚠️ Missing keys map! Please delete cdn_storage and restart.")
+            print("[Startup] Brakuje mapy kluczy! Usuń katalog cdn_storage i uruchom ponownie.")
             
     print("\n" + "="*70)
-    print("✅ PQC OTT System Ready")
-    print("🌐 Access at: http://localhost:8000/")
+    print("System PQC OTT gotowy")
+    print("Dostęp: http://localhost:8000/")
     print("="*70 + "\n")
 
 
@@ -83,7 +84,7 @@ def dashboard():
     <html>
     <head>
         <meta charset="UTF-8">
-        <title>🔐 PQC OTT System - Logowanie</title>
+        <title>PQC OTT System - Logowanie</title>
         <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
             body { font-family: 'Segoe UI', sans-serif; background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
@@ -102,7 +103,7 @@ def dashboard():
     <body>
         <div class="login-container">
             <div class="header">
-                <h1>🔐 PQC OTT</h1>
+                <h1>PQC OTT</h1>
                 <p>Zaloguj się, aby uzyskać dostęp do strumienia</p>
             </div>
             <div id="errorMsg">Nieprawidłowy login lub hasło!</div>
@@ -113,7 +114,7 @@ def dashboard():
             </form>
             <div class="accounts-info">
                 <h4>Konta testowe:</h4>
-                <ul><li>✅ <b>admin / admin</b> - Pełny dostęp</li><li>❌ <b>guest / guest</b> - Brak uprawnień</li></ul>
+                <ul><li><b>admin / admin</b> - Pełny dostęp</li><li><b>guest / guest</b> - Brak uprawnień</li></ul>
             </div>
         </div>
         <script>
@@ -190,8 +191,8 @@ def get_video_stream(session_id: str):
         for sid in segment_ids:
             interval = (sid // ROTATION_INTERVAL) * ROTATION_INTERVAL
             if interval != current_interval:
-                print(f"\n[KMS PQC] 🔄 ROTACJA KLUCZA: Granica segmentu {sid}.")
-                print(f"[KMS PQC] 🛡️  Symulacja zapytania z odtwarzacza: Pobieranie nowej paczki klucza ML-KEM!")
+                print(f"\n[KMS PQC] ROTACJA KLUCZA: Granica segmentu {sid}.")
+                print(f"[KMS PQC] Symulacja zapytania z odtwarzacza: Pobieranie nowej paczki klucza ML-KEM!")
                 current_interval = interval
                 
             data, meta = streaming_service.get_segment(session_id, sid, interval=ROTATION_INTERVAL)
@@ -214,17 +215,16 @@ def get_encrypted_video_stream(session_id: str):
     if not segment_ids:
         raise HTTPException(status_code=404, detail="Brak segmentów")
 
-    print(f"[Encrypted Stream] Pobieranie {len(segment_ids)} ALL encrypted segmentow")
+    print(f"[Encrypted Stream] Pobieranie {len(segment_ids)} ALL encrypted segmentów")
 
     def stream_generator():
         for sid in segment_ids:
             segment_file = os.path.join("cdn_storage", f"segment_{sid:03d}.ts")
             try:
                 with open(segment_file, 'rb') as f:
-                    data = f.read()
-                    yield data
-            except Exception as e:
-                print(f"[Encrypted Stream] Blad: {e}")
+                    yield f.read()
+            except (IOError, OSError) as e:
+                print(f"[Encrypted Stream] Błąd: {e}")
 
     return StreamingResponse(
         stream_generator(),
@@ -239,7 +239,7 @@ def stream_video_page():
     <html>
     <head>
         <meta charset="UTF-8">
-        <title>🎬 Video Player - PQC OTT System</title>
+        <title>Video Player - PQC OTT System</title>
         <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
             body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1a1a1a; color: #fff; padding: 20px; }
@@ -271,17 +271,17 @@ def stream_video_page():
     <body>
         <div class="container">
             <div class="header">
-                <h1>🎬 PQC OTT Video Player</h1>
+                <h1>PQC OTT Video Player</h1>
                 <div><button class="back-btn" onclick="goHome()">Odśwież</button><button class="logout-btn" onclick="logout()">Wyloguj</button></div>
             </div>
             <div class="session-info">
-                <div class="info-item" id="userIdInfo"><label>👤 Użytkownik</label><value id="userId">Loading...</value></div>
-                <div class="info-item" id="accessStatusInfo"><label>🔒 Uprawnienia</label><value id="accessStatus">Loading...</value></div>
-                <div class="info-item watermark-box" id="watermarkInfo"><label>🛡️ Cyfrowy Znak Wodny (ID)</label><value id="watermarkToken">Weryfikacja...</value></div>
-                <div class="info-item watermark-box"><label>🔑 Początkowy Klucz AES</label><value id="aesPreview">Oczekiwanie...</value></div>
+                <div class="info-item" id="userIdInfo"><label>Użytkownik</label><value id="userId">Ładowanie...</value></div>
+                <div class="info-item" id="accessStatusInfo"><label>Uprawnienia</label><value id="accessStatus">Ładowanie...</value></div>
+                <div class="info-item watermark-box" id="watermarkInfo"><label>Cyfrowy Znak Wodny (ID)</label><value id="watermarkToken">Weryfikacja...</value></div>
+                <div class="info-item watermark-box"><label>Początkowy Klucz AES</label><value id="aesPreview">Oczekiwanie...</value></div>
             </div>
             <div id="videoSection"></div>
-            <div class="controls"><button onclick="playVideo()" id="playBtn" class="play-btn">▶️ Odtwórz Wideo</button></div>
+            <div class="controls"><button onclick="playVideo()" id="playBtn" class="play-btn">Odtwórz Wideo</button></div>
             <div class="status-text" id="statusText">System gotowy.</div>
             <div class="status-text" style="color:#f39c12">Info dla testera: Obserwuj konsolę terminala serwera, aby zobaczyć powiadomienia o zrotowaniu klucza ML-KEM podczas odtwarzania wideo!</div>
         </div>
@@ -302,10 +302,10 @@ def stream_video_page():
                     
                     if (sessionInfo.is_authorized) {
                         accessEl.className = 'info-item access-granted';
-                        document.getElementById('accessStatus').textContent = '✅ DOSTĘP PRZYZNANY';
+                        document.getElementById('accessStatus').textContent = 'DOSTĘP PRZYZNANY';
                     } else {
                         accessEl.className = 'info-item access-denied';
-                        document.getElementById('accessStatus').textContent = '❌ ZABLOKOWANE';
+                        document.getElementById('accessStatus').textContent = 'ZABLOKOWANE';
                     }
 
                     const wmResp = await fetch(`/streaming/watermark?session_id=${sessionId}`);
@@ -389,15 +389,15 @@ def stream_video_page():
                 }
 
                 playBtn.disabled = true;
-                statusText.textContent = '⏳ Zestawianie bezpiecznego tunelu...';
+                statusText.textContent = 'Zestawianie bezpiecznego tunelu...';
                 videoSection.innerHTML = `<div class="video-container"><video id="videoPlayer" controls autoplay></video><div id="wmOverlay" class="watermark-overlay"></div></div>`;
 
                 try {
                     const videoUrl = `/streaming/video/stream?session_id=${sessionId}`;
                     const response = await fetch(videoUrl);
-                    if (!response.ok) { statusText.textContent = '❌ Błąd serwera strumieniowania.'; return; }
+                    if (!response.ok) { statusText.textContent = 'Błąd serwera strumieniowania.'; return; }
                     const blob = await response.blob();
-                    statusText.textContent = '✅ Wideo pobrane. Decodowanie i nakładanie watermarku...';
+                    statusText.textContent = 'Wideo pobrane. Decodowanie i nakładanie watermarku...';
 
                     const video = document.getElementById('videoPlayer');
                     const videoObjectURL = URL.createObjectURL(blob);
@@ -409,13 +409,13 @@ def stream_video_page():
                         mpegtsPlayer.attachMediaElement(video);
                         mpegtsPlayer.load();
                         mpegtsPlayer.play().then(() => {
-                            statusText.textContent = '✅ Transmisja zabezpieczona. Obserwuj terminal serwera dla zdarzeń rotacji klucza!';
+                            statusText.textContent = 'Transmisja zabezpieczona. Obserwuj terminal serwera dla zdarzeń rotacji klucza!';
                             playBtn.style.display = 'none';
                         }).catch(err => { video.src = videoObjectURL; video.play(); });
                     } else {
                         video.src = videoObjectURL; video.play();
                     }
-                } catch (err) { statusText.textContent = '❌ Błąd krytyczny odtwarzacza.'; }
+                } catch (err) { statusText.textContent = 'Błąd krytyczny odtwarzacza.'; }
             }
             function goHome() { location.reload(); }
             window.onload = () => {
