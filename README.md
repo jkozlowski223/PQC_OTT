@@ -1,5 +1,8 @@
 # PQC OTT - Post-Quantum Cryptography Over-The-Top Streaming System
 
+**Wersja:** 1.1  
+**Stan:** Czysty kod, ulepszone error handling, w pełni zoptymalizowany
+
 ## Przegląd Projektu
 
 **PQC OTT** to nowoczesny system przesyłania video w sieci (Over-The-Top) zbudowany na architekturze Post-Quantum Cryptography (PQC). Projekt łączy:
@@ -182,14 +185,19 @@ Odpowiada za segmentację i szyfrowanie pliku video.
 #### Logika `encrypt_segments()`:
 
 ```
-Dla każdego segmentu:
+Dla każdego segmentu (w kolejności sortowanej):
   1. Wydobądź index segmentu z nazwy pliku (segment_042 → 42)
   2. Oblicz current_interval = (42 // 10) * 10 = 40
-  3. Pobierz AES-klucz dla interwału 40
+  3. Pobierz AES-klucz dla interwału 40 (fallback na klucz[0] jeśli brakuje)
   4. Wygeneruj losowy IV (16 bajtów)
   5. Zaszyfruj dane z użyciem AES-256-CTR
   6. Zapisz IV + ciphertext do pliku (IV prepend)
 ```
+
+**Optymalizacje v1.1:**
+- Sortowanie segmentów przed przetwarzaniem
+- Fallback na domyślny klucz za pomocą `keys_map.get(current_interval, keys_map.get(0))`
+- Sprecyzowane obsługi wyjątków (IOError, OSError)
 
 **Rotacja kluczy:**
 - Segmenty 0-9 → klucz[0]
@@ -292,29 +300,24 @@ Jeśli nieuautoryzowany:
 
 ### Faza 3: Streamowanie
 
-```python
+```
+SCENARIUSZ A: Admin (Autoryzowany)
 1. Strona /streaming/video renderuje HTML player'a
-2. Player inicjalizuje stream z query parametrem:
-   GET /streaming/video/stream?session_id=<UUID>
-3. Serwer StreamingResponse zwraca generator:
-   
-   def stream_generator():
-       for segment_id in [0, 1, 2, ..., 117]:
-           segment_interval = (segment_id // 10) * 10
-           
-           # Wypisz rotację klucza co 10 segmentów
-           if interwał się zmienił:
-               print("ROTACJA KLUCZA")
-           
-           # Pobierz segment
-           data, metadata = get_segment(session_id, segment_id)
-           
-           if data:
-               yield data  # Prześlij audio/wideo
-           else:
-               # Błąd dostępu (guest)
-               break
-4. Player odbiera stream i wyświetla wideo
+2. Player kliknie "Odtwórz Wideo"
+3. Pobiera stream z /streaming/video/stream?session_id=<UUID>
+4. Serwer deszyfruje segmenty z odpowiednimi AES-kluczami
+5. Każde 10 segmentów: rotacja klucza (wydruk w terminalu)
+6. Player otrzymuje odszyfrowane dane H.264/AAC
+7. Video odtwarzane w przeglądarce
+
+SCENARIUSZ B: Guest (Nieuautoryzowany)
+1. Strona /streaming/video renderuje HTML player'a
+2. Player kliknie "Odtwórz Wideo"
+3. Pobiera stream z /streaming/video/stream-encrypted?session_id=<UUID>
+4. Serwer zwraca SUROWE, ZASZYFROWANE segmenty (bez deszyfowania)
+5. JavaScript konwertuje bajty na piksele na Canvas
+6. Wyświetla się szum/szumy (wizualizacja szyfrowania)
+7. Status pokazuje postęp: "Segment X: Y KB"
 ```
 
 ---
@@ -323,8 +326,8 @@ Jeśli nieuautoryzowany:
 
 | Nazwa użytkownika | Hasło | Dostęp | Opis |
 |------------------|-------|--------|------|
-| `admin` | `admin` | PEŁNY | Może oglądać całe wideo z decyzją danych |
-| `guest` | `guest` | BRAK | Nie może oglądać - błąd dostępu |
+| `admin` | `admin` | PEŁNY | Może oglądać całe wideo odszyfrowane |
+| `guest` | `guest` | BRAK | Nie może oglądać video - widzi szum szyfrowania (wizualizacja zaszyfrowanych danych) |
 
 ---
 
@@ -471,11 +474,21 @@ with oqs.Signature("ML-DSA-65") as verifier:
    Sesja NIEAUTORYZOWANA
    Brak przydzielonych kluczy
 
-2. Player żąda segment 0
-   → StreamingService sprawdza is_authorized
-   → FALSE
-   → Zwraca błąd: "Brak dostępu"
-   → Gracz zatrzymuje się, wyświetla komunikat błędu
+2. Player żąda zaszyfrowanych segmentów
+   → StreamingService zwraca endpoint /stream-encrypted
+   → Pobiera surowe zaszyfrowane dane segmentów
+   → Canvas rysuje piksele na podstawie bajtów szyfrowania
+   → Wyświetla się szum szyfrowania (wizualizacja zaszyfrowanej zawartości)
+   → Status: "Pobieranie encrypted segmentow..."
+
+3. Efekt wizualny:
+   → Przeglądarka wyświetla animowany szum/szumy (reprezentacja danych szyfrowanych)
+   → Po lewej stronie: "ENCRYPTED" overlay
+   → Pokazuje ile KB każdego segmentu
+   → Po pobraniu wszystkich segmentów: "GOTOWE! Pobrano X segmentów"
+
+Logika: Guest nie otrzymuje kluczy AES, więc nie może odszyfrować danych. 
+Zamiast błędu, system wizualizuje szyfrowaną zawartość na canvasie.
 ```
 
 ---
@@ -495,14 +508,28 @@ with oqs.Signature("ML-DSA-65") as verifier:
 
 ## Analiza Bezpieczeństwa
 
-### Mocne Strony
+### Mocne Strony (v1.1)
 
 - Post-Quantum Cryptography - Bezpieczeństwo przed atakami kwantowymi
 - Rotacja Kluczy - Kompromitacja jednego klucza = max 10 segmentów zagrożone
-- Autoryzacja na poziomie sesji - Użytkownicy bez uprawnień nie otrzymają kluczy
+- Autoryzacja na poziomie sesji - Użytkownicy bez uprawnień nie otrzymają klucze
 - Magazyn Kluczy - ML-DSA klucze przechowywane zaszyfrowane w vault.enc
+- Sprecyzowane Exception Handling - Konkretne typy wyjątków (IOError, OSError, ValueError, KeyError, json.JSONDecodeError)
+- Fallback Bezpieczeństwa - Automatyczny fallback na domyślny klucz AES jeśli brakuje
+- Konsystencja Przetwarzania - Sortowane segmenty dla powtarzalności operacji
+- Zoptymalizowany Kod - Usunięte debugowe printy, czysty Python 3.8+, bez emojis
 
-### Potencjalne Ulepszenia
+### Optymalizacje w v1.1
+
+| Zmiana | Wpływ | Opis |
+|--------|-------|------|
+| Sortowanie segmentów | Wydajność | Konsystentna kolejność przetwarzania plików |
+| Fallback kluczy | Bezpieczeństwo | `keys_map.get(current_interval, keys_map.get(0))` zamiast warunkowego |
+| Exception handling | Debugowalność | Sprecyzowane typy błędów zamiast ogólnego Exception |
+| Usunięte emojis | Czytelność | Czysty output w logach systemowych |
+| Zmienne lokalne | Wydajność | Zmniejszona liczba powtarzających się obliczeń |
+
+## Potencjalne Ulepszenia
 
 - Dynamiczne przydzielanie kluczy (zamiast wszystko na startup)
 - Realne hasła zamiast hardkodowanych (admin/guest)
@@ -511,6 +538,35 @@ with oqs.Signature("ML-DSA-65") as verifier:
 - Refresh tokenów i wygasanie sesji
 - Rate limiting i protecja przed brute-force
 - Auditowanie dostępu (logi kto co widział)
+
+---
+
+## Historia Zmian
+
+### v1.1 (Czerwiec 2026) - Optymalizacja i Czyszczenie Kodu
+
+**Główne zmiany:**
+- Usunięto wszystkie emojis z kodu i logów (czystość systemowa)
+- Ujednolicono wszystkie printy do polskiego języka
+- Wprowadzono sprecyzowane exception handling zamiast ogólnych Exception
+- Dodano sortowanie segmentów dla konsystencji przetwarzania
+- Implementowano fallback na domyślny klucz AES dla bezpieczeństwa
+- Zoptymalizowano metody do szybszego działania
+- Wyczyszczono dokumentację (README)
+
+**Techniczne detale optymalizacji:**
+- `video_processor.py`: Sortowanie segmentów przed przetwarzaniem, fallback na klucz[0]
+- `streaming_service.py`: Sprecyzowane exception handling (IOError, OSError, ValueError, KeyError)
+- `kms_pqc.py`: Obsługa json.JSONDecodeError, UnicodeDecodeError
+- `main.py`: Czysty kod, zmienna `keys_file_path` dla czytelności, usunięte debug printy
+
+### v1.0 (Maj 2026) - Wersja Początkowa
+
+- Architektura PQC OTT z Kyber768 i ML-DSA-65
+- Segmentacja video za pomocą FFmpeg
+- Rotacja kluczy AES-256 co 10 segmentów
+- System autoryzacji sesji
+- HTML5 video player z watermarkiem
 
 ---
 
@@ -541,5 +597,5 @@ Projekt jest demonstracją edukacyjną post-quantum cryptography. Do użytku pro
 
 ---
 
-**Ostatnia aktualizacja:** Maj 2026
-**Wersja:** 1.1
+**Ostatnia aktualizacja:** Czerwiec 2026
+**Wersja:** 1.1 - Wyczyszczony kod, sprecyzowane error handling, w pełni zoptymalizowany
