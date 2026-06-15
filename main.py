@@ -192,7 +192,7 @@ def get_video_stream(session_id: str):
             interval = (sid // ROTATION_INTERVAL) * ROTATION_INTERVAL
             if interval != current_interval:
                 print(f"\n[KMS PQC] ROTACJA KLUCZA: Granica segmentu {sid}.")
-                print(f"[KMS PQC] Symulacja zapytania z odtwarzacza: Pobieranie nowej paczki klucza ML-KEM!")
+                print(f"[KMS PQC] Symulacja zapytania z odtwarzacza: Pobieranie nowej paczki klucza AES!")
                 current_interval = interval
                 
             data, meta = streaming_service.get_segment(session_id, sid, interval=ROTATION_INTERVAL)
