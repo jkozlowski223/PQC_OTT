@@ -283,7 +283,7 @@ def stream_video_page():
             <div id="videoSection"></div>
             <div class="controls"><button onclick="playVideo()" id="playBtn" class="play-btn">Odtwórz Wideo</button></div>
             <div class="status-text" id="statusText">System gotowy.</div>
-            <div class="status-text" style="color:#f39c12">Info dla testera: Obserwuj konsolę terminala serwera, aby zobaczyć powiadomienia o zrotowaniu klucza ML-KEM podczas odtwarzania wideo!</div>
+            <div class="status-text" style="color:#f39c12">Info dla testera: Obserwuj konsolę terminala serwera, aby zobaczyć powiadomienia o zrotowaniu klucza AES podczas odtwarzania wideo!</div>
         </div>
         <script>
             let sessionId = localStorage.getItem('sessionId');
